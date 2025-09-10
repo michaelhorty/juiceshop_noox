@@ -40,7 +40,10 @@ interface IAuthenticatedUsers {
   updateFrom: (req: Request, user: ResponseWithUser) => any
 }
 
-export const hash = (data: string) => crypto.createHash('md5').update(data).digest('hex')
+import bcrypt from 'bcrypt'
+
+export const hash = (data: string) => bcrypt.hashSync(data, 12)
+export const compareHash = (data: string, hash: string) => bcrypt.compareSync(data, hash)
 export const hmac = (data: string) => crypto.createHmac('sha256', 'pa4qacea4VK9t9nGv7yZtwmj').update(data).digest('hex')
 
 export const cutOffPoisonNullByte = (str: string) => {
@@ -52,9 +55,18 @@ export const cutOffPoisonNullByte = (str: string) => {
 }
 
 export const isAuthorized = () => expressJwt(({ secret: publicKey }) as any)
-export const denyAll = () => expressJwt({ secret: '' + Math.random() } as any)
+export const denyAll = () => expressJwt({ secret: crypto.randomBytes(32).toString('hex') } as any)
 export const authorize = (user = {}) => jwt.sign(user, privateKey, { expiresIn: '6h', algorithm: 'RS256' })
-export const verify = (token: string) => token ? (jws.verify as ((token: string, secret: string) => boolean))(token, publicKey) : false
+export const verify = (token: string) => {
+  if (!token) return false
+  try {
+    // Verify token with proper algorithm specification
+    jwt.verify(token, publicKey, { algorithms: ['RS256'] })
+    return true
+  } catch (error) {
+    return false
+  }
+}
 export const decode = (token: string) => { return jws.decode(token).payload }
 
 export const sanitizeHtml = (html: string) => sanitizeHtmlLib(html)
@@ -139,11 +151,13 @@ export const redirectAllowlist = new Set([
 ])
 
 export const isRedirectAllowed = (url: string) => {
-  let allowed = false
+  // Use exact match instead of includes to prevent subdomain attacks
   for (const allowedUrl of redirectAllowlist) {
-    allowed = allowed || url.includes(allowedUrl) // vuln-code-snippet vuln-line redirectChallenge
+    if (url === allowedUrl || url.startsWith(allowedUrl + '/')) {
+      return true
+    }
   }
-  return allowed
+  return false
 }
 // vuln-code-snippet end redirectCryptoCurrencyChallenge redirectChallenge
 
